@@ -2,14 +2,89 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Upload File</title>
+  <title>Browser Transcription (Magenta.js)</title>
+  <!-- Load dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.8.6/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/dist/magentamusic.min.js"></script>
+  <style>
+    #status { margin: 1em 0; }
+    #download-link { display: none; }
+  </style>
 </head>
 <body>
-  <h1>Upload a Music File</h1>
-  <form action="/upload" method="POST" enctype="multipart/form-data">
-    <label for="file">Choose a file to upload:</label><br><br>
-    <input type="file" name="file" id="file" /><br><br>
-    <input type="submit" value="Upload" />
-  </form>
+  <h1>Upload an Audio File for In-Browser Transcription</h1>
+  
+  <input type="file" id="audio-file-input" accept="audio/*" />
+  <p id="status">Loading model...</p>
+  <a id="download-link" href="#" download="transcribed.mid">Download MIDI</a>
+  
+  <script>
+    // Initialize model as a global variable
+    let model;
+    
+    // Initialize the model
+    const modelURL = 'https://storage.googleapis.com/magentadata/js/checkpoints/transcription/onsets_frames_uni';
+    
+    // Load the model
+    const run = async () => {
+      try {
+        model = new mm.OnsetsAndFrames(modelURL);
+        await model.initialize();
+        document.getElementById('status').textContent = 'Model loaded! Choose an audio file...';
+      } catch (err) {
+        console.error(err);
+        document.getElementById('status').textContent = 'Error loading model: ' + err.message;
+      }
+    };
+    
+    run();
+    
+    const statusEl = document.getElementById('status');
+    const fileInput = document.getElementById('audio-file-input');
+    const downloadLink = document.getElementById('download-link');
+    let audioCtx;
+
+    // Listen for file selection
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      statusEl.textContent = "Decoding audio...";
+
+      // Create or re-use an AudioContext for decoding
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      try {
+        // Read the file into an ArrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
+        // Decode that into an AudioBuffer
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+        // Transcribe using OnsetsAndFrames
+        statusEl.textContent = "Transcribing...";
+        
+        const ns = await model.transcribeFromAudioBuffer(audioBuffer);
+
+        // Convert the NoteSequence to a MIDI file
+        statusEl.textContent = "Converting to MIDI...";
+        const midi = mm.sequenceProtoToMidi(ns);
+
+        // Create a Blob for download
+        const blob = new Blob([midi], { type: "audio/midi" });
+        const url = URL.createObjectURL(blob);
+
+        // Show a link to download
+        downloadLink.href = url;
+        downloadLink.style.display = "inline-block";
+        downloadLink.textContent = "Download Transcribed MIDI";
+        statusEl.textContent = "Done! MIDI ready for download.";
+      } catch (error) {
+        console.error('Error during transcription:', error);
+        statusEl.textContent = "Error during transcription: " + error.message;
+      }
+    });
+  </script>
 </body>
 </html>
