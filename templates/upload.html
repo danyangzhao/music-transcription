@@ -19,14 +19,11 @@
   <a id="download-link" href="#" download="transcribed.mid">Download MIDI</a>
   
   <script>
-    // Initialize model as a global variable
     let model;
     
-    // Initialize the model
     const modelURL = 'https://storage.googleapis.com/magentadata/js/checkpoints/transcription/onsets_frames_uni';
     
-    // Load the model
-    const run = async () => {
+    const initializeModel = async () => {
       try {
         model = new mm.OnsetsAndFrames(modelURL);
         await model.initialize();
@@ -37,54 +34,82 @@
       }
     };
     
-    run();
+    initializeModel();
     
     const statusEl = document.getElementById('status');
     const fileInput = document.getElementById('audio-file-input');
     const downloadLink = document.getElementById('download-link');
     let audioCtx;
 
-    // Listen for file selection
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       statusEl.textContent = "Decoding audio...";
 
-      // Create or re-use an AudioContext for decoding
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
 
       try {
-        // Read the file into an ArrayBuffer
         const arrayBuffer = await file.arrayBuffer();
-        // Decode that into an AudioBuffer
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-        // Transcribe using OnsetsAndFrames
         statusEl.textContent = "Transcribing...";
         
         const ns = await model.transcribeFromAudioBuffer(audioBuffer);
 
-        // Convert the NoteSequence to a MIDI file
         statusEl.textContent = "Converting to MIDI...";
         const midi = mm.sequenceProtoToMidi(ns);
+        const midiBlob = new Blob([midi], { type: "audio/midi" });
 
-        // Create a Blob for download
-        const blob = new Blob([midi], { type: "audio/midi" });
-        const url = URL.createObjectURL(blob);
-
-        // Show a link to download
-        downloadLink.href = url;
+        // Show MIDI download link
+        downloadLink.href = URL.createObjectURL(midiBlob);
         downloadLink.style.display = "inline-block";
-        downloadLink.textContent = "Download Transcribed MIDI";
-        statusEl.textContent = "Done! MIDI ready for download.";
+        downloadLink.textContent = "Download MIDI";
+        
+        // Convert MIDI to MusicXML
+        statusEl.textContent = "Converting to sheet music...";
+        try {
+          const xmlBlob = await uploadMidiAndGetXML(midiBlob);
+          
+          // Create MusicXML download link
+          const xmlUrl = URL.createObjectURL(xmlBlob);
+          const xmlLink = document.createElement("a");
+          xmlLink.href = xmlUrl;
+          xmlLink.download = "transcribed.musicxml";
+          xmlLink.textContent = "Download Sheet Music (MusicXML)";
+          document.body.appendChild(xmlLink);
+          
+          statusEl.textContent = "Done! MIDI and Sheet Music ready for download.";
+        } catch (xmlError) {
+          console.error('Error converting to sheet music:', xmlError);
+          statusEl.textContent = "MIDI ready, but sheet music conversion failed.";
+        }
       } catch (error) {
         console.error('Error during transcription:', error);
         statusEl.textContent = "Error during transcription: " + error.message;
       }
     });
+
+    async function uploadMidiAndGetXML(midiBlob) {
+      const formData = new FormData();
+      formData.append("midi_file", midiBlob, "transcribed.mid");
+      
+      const response = await fetch("/convert_midi_to_xml", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Error from server: ${text}`);
+      }
+      
+      return await response.blob();
+    }
   </script>
 </body>
 </html>
+
+
